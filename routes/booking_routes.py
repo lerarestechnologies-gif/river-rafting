@@ -361,9 +361,17 @@ def track_booking():
             flash('No booking found for that contact.', 'error')
             return redirect(url_for('booking.track_booking'))
         
+        # Filter out past bookings - only show upcoming bookings (today and future)
+        today = date.today().isoformat()
+        upcoming_bookings = [b for b in bookings if b.get('date', '') >= today]
+        
+        if not upcoming_bookings:
+            flash('No upcoming bookings found. Your bookings are in the past.', 'info')
+            return redirect(url_for('booking.track_booking'))
+        
         # Convert ObjectId to string for template rendering
-        for b in bookings:
+        for b in upcoming_bookings:
             b['_id'] = str(b.get('_id'))
             
-        return render_template('track_booking_result.html', bookings=bookings)
+        return render_template('track_booking_result.html', bookings=upcoming_bookings)
     return render_template('track_booking.html')

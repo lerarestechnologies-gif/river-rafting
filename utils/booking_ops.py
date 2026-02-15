@@ -5,8 +5,10 @@ from datetime import datetime, date
 
 def get_deallocation_amounts(db, date, slot, group_size, raft_ids):
     """
-    Determine how many people to remove from each raft following the same
-    allocation pattern logic used during booking.
+    Determine how many people to remove from each raft.
+    Uses current raft occupancies to match allocation pattern parts to the
+    correct rafts (allocation places by merge/empty order, not by raft_id order),
+    so we must match by current occupancy to avoid wrong rafts and redundancy.
     Returns a list of tuples: [(raft_id, amount_to_remove), ...]
     """
     settings = load_settings(db)
@@ -14,12 +16,12 @@ def get_deallocation_amounts(db, date, slot, group_size, raft_ids):
     rafts_per_slot = settings.get('rafts_per_slot', 5)
     max_people_per_slot = settings.get('rafts_per_slot', 5) * (capacity + 1)
     
-    # Fetch current raft states
+    # Fetch current raft states (occupancy) for the given raft_ids
     raft_map = {}
     for rid in raft_ids:
         raft = db.rafts.find_one({'day': date, 'slot': slot, 'raft_id': int(rid)})
         if raft:
-            raft_map[int(rid)] = raft
+            raft_map[int(rid)] = max(0, raft.get('occupancy', 0))
     
     if not raft_map:
         return []
@@ -31,15 +33,16 @@ def get_deallocation_amounts(db, date, slot, group_size, raft_ids):
         base = group_size // rafts_per_slot
         rem = group_size % rafts_per_slot
         deallocations = []
-        # Sort raft_ids to match the deterministic ordering used in allocation
         sorted_raft_ids = sorted(raft_ids, key=lambda x: int(x))
         for idx, rid in enumerate(sorted_raft_ids):
             amount = base + (1 if idx < rem else 0)
             deallocations.append((int(rid), amount))
         return deallocations
     
-    # ---------- Regular booking deallocation using allocation pattern ----------
-    # Get the allocation pattern that was used during booking
+    # ---------- Regular booking: match pattern parts to rafts by current occupancy ----------
+    # Allocation places parts by merge/empty order (first raft with space), not by raft_id.
+    # So we must not assume sorted raft_id order. Instead, for each pattern part (largest
+    # first), remove it from a raft that currently has at least that much occupancy.
     allocation = get_allocation_pattern(group_size, max_people_per_slot)
     
     if not allocation:
@@ -52,80 +55,37 @@ def get_deallocation_amounts(db, date, slot, group_size, raft_ids):
             deallocations.append((int(rid), amount))
         return deallocations
     
-    # Match allocation pattern parts to rafts
-    # The allocation logic allocates parts sequentially - either merged into existing rafts
-    # or placed into empty rafts. We need to match pattern parts to rafts deterministically.
-    
-    sorted_raft_ids = sorted(raft_ids, key=lambda x: int(x))
+    # Remaining occupancy we can assign to remove (per raft); start with current occupancies
+    remaining = {int(rid): raft_map[int(rid)] for rid in raft_ids}
     deallocations = []
+    # Process pattern parts largest-first so we match 7/6/4 etc. to rafts that have that much
+    parts_desc = sorted([p for p in allocation if p > 0], reverse=True)
     
-    # Strategy: Match allocation pattern parts to rafts in order
-    # This mirrors the allocation logic which processes parts sequentially
+    for part in parts_desc:
+        # Find a raft that has at least `part` remaining (prefer exact match to avoid fragments)
+        candidates_exact = [rid for rid in remaining if remaining[rid] == part]
+        candidates_any = [rid for rid in remaining if remaining[rid] >= part]
+        rid_choice = None
+        if candidates_exact:
+            rid_choice = min(candidates_exact)  # deterministic
+        elif candidates_any:
+            rid_choice = min(candidates_any)
+        if rid_choice is None:
+            continue
+        deallocations.append((rid_choice, part))
+        remaining[rid_choice] -= part
     
-    # For single-raft allocations (4-7 people), all people go to one raft
-    if len(allocation) == 1:
-        # Single pattern part goes to the first raft
-        if sorted_raft_ids:
-            deallocations.append((int(sorted_raft_ids[0]), allocation[0]))
-            # Verify total matches group_size
-            if allocation[0] != group_size and len(sorted_raft_ids) > 1:
-                # Edge case: if group_size doesn't match pattern, distribute remainder
-                remaining = group_size - allocation[0]
-                if remaining > 0:
-                    per_remaining = remaining // (len(sorted_raft_ids) - 1)
-                    rem_remaining = remaining % (len(sorted_raft_ids) - 1)
-                    for idx, rid in enumerate(sorted_raft_ids[1:], 1):
-                        amount = per_remaining + (1 if idx <= rem_remaining else 0)
-                        if amount > 0:
-                            deallocations.append((int(rid), amount))
-    
-    # For multi-raft allocations (8+ people), match each pattern part to a raft
-    elif len(allocation) >= 2:
-        # Allocate pattern parts sequentially to rafts (matching allocation order)
-        remaining_rafts = sorted_raft_ids.copy()
-        
-        for pattern_part in allocation:
-            if not remaining_rafts:
-                break
-            # Assign this pattern part to the next available raft
-            rid = remaining_rafts.pop(0)
-            deallocations.append((int(rid), pattern_part))
-        
-        # Check if all people are accounted for
-        allocated_so_far = sum(amount for _, amount in deallocations)
-        remaining_people = group_size - allocated_so_far
-        
-        # If there are remaining rafts or remaining people, handle it
-        if remaining_people > 0:
-            if remaining_rafts:
-                # Distribute remaining people to remaining rafts
-                per = remaining_people // len(remaining_rafts)
-                rem = remaining_people % len(remaining_rafts)
-                for idx, rid in enumerate(remaining_rafts):
-                    amount = per + (1 if idx < rem else 0)
-                    if amount > 0:
-                        deallocations.append((int(rid), amount))
-            else:
-                # No more rafts but still have remaining people - shouldn't happen
-                # Add to the last raft as safety
-                if deallocations:
-                    last_raft_id, last_amount = deallocations[-1]
-                    deallocations[-1] = (last_raft_id, last_amount + remaining_people)
-    
-    else:
-        # Fallback: simple division (shouldn't reach here if get_allocation_pattern works)
-        per = group_size // len(sorted_raft_ids)
-        rem = group_size % len(sorted_raft_ids)
-        for idx, rid in enumerate(sorted_raft_ids):
-            amount = per + (1 if idx < rem else 0)
-            deallocations.append((int(rid), amount))
-    
-    # Validate: ensure total matches group_size
+    # Validate total
     total_deallocated = sum(amount for _, amount in deallocations)
-    if total_deallocated != group_size:
-        # If mismatch, adjust the last entry to match
-        if deallocations:
-            diff = group_size - total_deallocated
+    if total_deallocated != group_size and deallocations:
+        diff = group_size - total_deallocated
+        if diff > 0:
+            # Under-removed: assign remainder to raft with most occupancy
+            best_rid = max(remaining, key=lambda rid: remaining[rid])
+            if remaining[best_rid] >= diff:
+                deallocations.append((best_rid, diff))
+        elif diff < 0:
+            # Over-removed: reduce last entry
             last_raft_id, last_amount = deallocations[-1]
             deallocations[-1] = (last_raft_id, last_amount + diff)
     
@@ -228,29 +188,30 @@ def check_capacity_available(db, date, slot, group_size):
         return True
     
     # ---------- Regular booking capacity check (mirrors allocate_raft logic) ----------
-    # Special case: if group_size is 7, check for empty rafts
-    if group_size == 7:
-        empty_rafts = [r for r in rafts if r.get('occupancy', 0) == 0]
-        if not empty_rafts:
-            return False
-    else:
-        # For other group sizes, check standard capacity (initial check)
-        total_vacancy = sum(max(capacity - r.get('occupancy', 0), 0) for r in rafts)
-        if total_vacancy < group_size:
-            return False
-    
-    # Get allocation pattern
-    allocation = get_allocation_pattern(group_size, max_people_per_slot)
-    if not allocation:
-        return False
-    
-    # For small groups (<4), check if we can merge (mirrors allocate_raft logic)
+    # Small groups (1, 2, 3): only allowed into partially filled rafts (occupancy 2–5), not empty rafts
+    # Handle before get_allocation_pattern since it returns [] for group_size < 4
     if group_size < 4:
         for r in rafts:
             if not r.get('is_special', False) and r.get('occupancy', 0) > 0:
                 vacancy = capacity - r.get('occupancy', 0)
                 if vacancy >= group_size:
                     return True
+        return False
+
+    # Special case: if group_size is 7, check for empty rafts
+    if group_size == 7:
+        empty_rafts = [r for r in rafts if r.get('occupancy', 0) == 0]
+        if not empty_rafts:
+            return False
+    else:
+        # For other group sizes (4–6, 8+), check standard capacity (initial check)
+        total_vacancy = sum(max(capacity - r.get('occupancy', 0), 0) for r in rafts)
+        if total_vacancy < group_size:
+            return False
+    
+    # Get allocation pattern (only used for group_size >= 4; 1–3 already handled above)
+    allocation = get_allocation_pattern(group_size, max_people_per_slot)
+    if not allocation:
         return False
     
     # For larger groups, simulate allocation to see if all parts can be placed
@@ -374,7 +335,7 @@ def postpone_booking(db, booking_oid, new_date, new_slot):
                     {'day': old_date, 'slot': old_slot, 'raft_id': raft_id},
                     update_data
                 )
-
+        
         # Allocate in new slot
         res = allocate_raft(db, None, new_date, new_slot, group_size)
         
@@ -403,38 +364,6 @@ def postpone_booking(db, booking_oid, new_date, new_slot):
             'rescheduled_by_admin': True
         }
         db.bookings.update_one({'_id': booking_oid}, {'$set': update_data})
-        
-        # NOW recompute authoritative raft occupancies for the old date/slot.
-        # This MUST be after booking update so the moved booking is not included.
-        # This prevents stale occupancy when incremental deallocations leave residuals.
-        try:
-            confirmed_bookings = list(db.bookings.find({'date': old_date, 'slot': old_slot, 'status': 'Confirmed'}))
-            # Build occupancy map by summing allocation parts for each confirmed booking
-            occupancy_map = {}
-            for cb in confirmed_bookings:
-                cb_raft_ids = cb.get('raft_allocations', [])
-                cb_group = int(cb.get('group_size', 0))
-                if not cb_raft_ids or cb_group <= 0:
-                    continue
-                parts = get_deallocation_amounts(db, cb.get('date'), cb.get('slot'), cb_group, cb_raft_ids)
-                for rid, amt in parts:
-                    occupancy_map[int(rid)] = occupancy_map.get(int(rid), 0) + int(amt)
-
-            # Update each raft document to the authoritative occupancy
-            rafts = list(db.rafts.find({'day': old_date, 'slot': old_slot}))
-            for raft in rafts:
-                rid = int(raft.get('raft_id'))
-                new_occ = occupancy_map.get(rid, 0)
-                update = {'$set': {'occupancy': new_occ}}
-                # Maintain special flag only for occupancy == 7
-                if new_occ == 7:
-                    update['$set']['is_special'] = True
-                else:
-                    update['$set']['is_special'] = False
-                db.rafts.update_one({'day': old_date, 'slot': old_slot, 'raft_id': rid}, update)
-        except Exception:
-            # Don't let recompute failure block the postpone flow; keep earlier updates.
-            pass
         
         # Fetch updated booking to return
         updated_booking = db.bookings.find_one({'_id': booking_oid})

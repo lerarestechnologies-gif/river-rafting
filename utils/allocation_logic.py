@@ -11,7 +11,7 @@ def load_settings(db):
         settings = {
             'rafts_per_slot': 5,
             'capacity': 6,
-            'time_slots': [], # No hardcoded defaults; must be set by admin
+            'time_slots': ['7:00–9:00', '10:00–12:00', '13:00–15:00', '15:30–17:30'],
             'start_date': today.isoformat(),
             'end_date': default_end.isoformat(),
             'days': 30
@@ -127,27 +127,16 @@ def allocate_raft(db, user_id, date, slot, group_size):
         return {'status': 'Confirmed', 'rafts': placed, 'message': f'Bulk allocated to rafts: {placed}'}
 
 
-    # Calculate total vacancy with special raft consideration
-    # - Empty raft: vacancy = capacity + 1 (can be a special 7-person raft)
-    # - Non-empty, non-special raft: vacancy = max(capacity - occupancy, 0)
-    # - Special raft: vacancy = 0 (already filled to 7)
-    total_vacancy = 0
-    for r in rafts:
-        occupancy = r.get('occupancy', 0)
-        is_special = r.get('is_special', False)
-        
-        if occupancy == 0:
-            # Empty raft can hold capacity + 1 (special 7-person mode)
-            total_vacancy += capacity + 1
-        elif is_special:
-            # Special raft is fully occupied at 7
-            total_vacancy += 0
-        else:
-            # Normal raft: remaining capacity
-            total_vacancy += max(capacity - occupancy, 0)
-    
-    if total_vacancy < group_size:
-        return {'status': 'Pending', 'rafts': [], 'message': 'Not enough capacity in this slot.'}
+    # Special case: if group_size is 7, check for empty rafts (can allocate 7 to empty raft as special)
+    if group_size == 7:
+        empty_rafts = [r for r in rafts if r.get('occupancy', 0) == 0]
+        if not empty_rafts:
+            return {'status': 'Pending', 'rafts': [], 'message': 'Not enough capacity in this slot.'}
+    else:
+        # For other group sizes, check standard capacity
+        total_vacancy = sum(max(capacity - r.get('occupancy', 0), 0) for r in rafts)
+        if total_vacancy < group_size:
+            return {'status': 'Pending', 'rafts': [], 'message': 'Not enough capacity in this slot.'}
 
     # small groups (<4) - merge into any partially filled raft
     if group_size < 4:

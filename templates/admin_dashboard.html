@@ -31,7 +31,32 @@
           {% endif %}
         </div>
 
-        {% if not is_subadmin %}
+        {% if is_subadmin %}
+        <!-- Sub-Admin View: Slot filter and refresh button -->
+        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label for="subadminSlotFilter" class="text-sm font-medium text-gray-700">Filter by Slot:</label>
+            <select id="subadminSlotFilter" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+              <option value="">All Slots</option>
+              {% for s in (settings.time_slots if settings and settings.time_slots else []) %}
+              <option value="{{ s }}" {% if filter_slot==s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="applySubadminFilters()"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm">Apply</button>
+            <button onclick="clearSubadminFilters()"
+              class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-1.5 rounded text-sm">Clear</button>
+            <button onclick="refreshSubadminBookings()"
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm flex items-center gap-2">
+              <span>🔄</span>
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+        {% else %}
+        <!-- Admin View: Date range and other filters -->
         <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
           <!-- From date -->
           <div style="display:flex; align-items:center; gap:8px; min-width:180px;">
@@ -174,7 +199,7 @@
       <!-- Admin View: Single Table (Filtered) -->
       <div class="mb-3 text-sm text-gray-600">
         <span id="bookingCount">{{ bookings|length }}</span> booking{{ 's' if bookings|length != 1 else '' }} found
-        {% if filter_from and filter_to and filter_from == filter_to and filter_from == now_str %}
+        {% if filter_from and filter_to and filter_from == filter_to and filter_from == today_str|default('') %}
         <span class="text-blue-600">(Today)</span>
         {% elif filter_from or filter_to %}
         <span class="text-blue-600">(filtered)</span>
@@ -223,10 +248,14 @@
               {% endif %}
             </td>
             <td class="border px-4 py-2">
+              {% if b.date < today_str|default('') %}
+              <span class="text-gray-400 text-sm" title="Booking date has passed">—</span>
+              {% else %}
               <button onclick="cancelBooking('{{ b._id }}')"
                 class="bg-red-500 text-white px-2 py-1 rounded">Cancel</button>
               <button onclick="promptPostpone(event, '{{ b._id }}')"
                 class="bg-yellow-500 text-white px-2 py-1 rounded ml-2">Postpone</button>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -436,10 +465,8 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // Sort configured time slots chronologically (by start time)
-    if (Array.isArray(timeSlots) && timeSlots.length > 0) {
-      timeSlots.sort((a, b) => parseTimeSlotStart(a) - parseTimeSlotStart(b));
-    }
+
+    // Use time slot order from Settings (input order: 7, 10, 13, 15) — do not re-sort
 
     const fromInp = document.getElementById('occupancyFrom');
     const toInp = document.getElementById('occupancyTo');
@@ -509,6 +536,21 @@
     //     }
     //   });
     // }
+  }
+
+  // Sub-Admin Slot Filter Functions
+  function applySubadminFilters() {
+    const slot = document.getElementById('subadminSlotFilter')?.value || '';
+    const url = '/admin/dashboard' + (slot ? '?slot=' + encodeURIComponent(slot) : '');
+    window.location.href = url;
+  }
+
+  function clearSubadminFilters() {
+    window.location.href = '/admin/dashboard';
+  }
+
+  function refreshSubadminBookings() {
+    location.reload();
   }
   function applyFilters() {
     const params = new URLSearchParams();

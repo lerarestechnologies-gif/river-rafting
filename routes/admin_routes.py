@@ -47,35 +47,62 @@ def subadmin_or_admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def _booking_sort_key(booking, time_slots):
+    """Sort key for All Bookings: date ASC, then slot by configured time order, then created_at DESC."""
+    date_val = booking.get('date') or ''
+    slot = booking.get('slot') or ''
+    try:
+        slot_index = time_slots.index(slot) if slot in time_slots else len(time_slots)
+    except (ValueError, TypeError):
+        slot_index = len(time_slots)
+    created = booking.get('created_at')
+    created_ts = created.timestamp() if hasattr(created, 'timestamp') and created else 0
+    return (date_val, slot_index, -created_ts)
+
+
 @admin_bp.route('/dashboard')
 @login_required
 @subadmin_or_admin_required
 def dashboard():
     db = current_app.mongo.db
     settings = load_settings(db)
+    time_slots = settings.get('time_slots') or []
     # Build query filter for bookings list (filters apply only to bookings)
     query_filter = {}
-    
-    # Common sort order for all views: Date ASC, Slot ASC, then Created Desc
-    # Note: Slot strings need to be sortable. If they are "7:00...", "10:00...", simple string sort works okayish but "7" comes after "10". 
-    # For now we stick to DB string sort. Ideal world: sort by a separate 'slot_value'.
-    sort_order = [('date', 1), ('slot', 1), ('created_at', -1)]
+
+    # DB sort: date and created_at; slot order applied in Python using configured time_slots
+    sort_order = [('date', 1), ('created_at', -1)]
 
     # If subadmin, do not apply user-supplied filters — show Confirmed bookings for today and tomorrow separately
     if current_user.is_subadmin():
         today = datetime.date.today().isoformat()
         tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
         
-        # Fetch Today's Bookings
-        bookings_today = list(db.bookings.find({'date': today, 'status': 'Confirmed'}).sort(sort_order))
+        # Get slot filter from query params if provided
+        slot_filter = request.args.get('slot', '').strip()
+
+        # Build query filters for today and tomorrow
+        today_filter = {'date': today, 'status': 'Confirmed'}
+        tomorrow_filter = {'date': tomorrow, 'status': 'Confirmed'}
+        
+        # Apply slot filter if provided
+        if slot_filter:
+            today_filter['slot'] = slot_filter
+            tomorrow_filter['slot'] = slot_filter
+
+        # Fetch Today's Bookings and sort by date then slot order
+        bookings_today = list(db.bookings.find(today_filter).sort(sort_order))
+        bookings_today.sort(key=lambda b: _booking_sort_key(b, time_slots))
         for b in bookings_today:
             b['created_at_ist'] = utc_to_ist(b.get('created_at'))
-            
-        # Fetch Tomorrow's Bookings
-        bookings_tomorrow = list(db.bookings.find({'date': tomorrow, 'status': 'Confirmed'}).sort(sort_order))
+
+        # Fetch Tomorrow's Bookings and sort by date then slot order
+        bookings_tomorrow = list(db.bookings.find(tomorrow_filter).sort(sort_order))
+        bookings_tomorrow.sort(key=lambda b: _booking_sort_key(b, time_slots))
         for b in bookings_tomorrow:
             b['created_at_ist'] = utc_to_ist(b.get('created_at'))
 
+        today_str = datetime.date.today().isoformat()
         return render_template('admin_dashboard.html',
                              bookings_today=bookings_today,
                              bookings_tomorrow=bookings_tomorrow,
@@ -83,8 +110,9 @@ def dashboard():
                              settings=settings,
                              filter_from=today, # Default views for reference
                              filter_to=tomorrow,
-                             filter_slot='',
-                             filter_status='')
+                             filter_slot=slot_filter,
+                             filter_status='',
+                             today_str=today_str)
 
     # For admin: Read filter params from query string
     from_date = request.args.get('from', '').strip()
@@ -116,7 +144,7 @@ def dashboard():
             query_filter['date'] = {'$lte': to_date}
         except (ValueError, TypeError):
             flash('Invalid To date', 'error')
-    
+
     # If NO date filter is provided for Admin, default to TODAY
     if not from_date and not to_date:
         today_str = datetime.date.today().isoformat()
@@ -135,9 +163,13 @@ def dashboard():
 
     # Fetch bookings with filters (admin)
     bookings = list(db.bookings.find(query_filter).sort(sort_order).limit(500))
+    # Sort by filtered date then by configured time-slot order (chronological)
+    bookings.sort(key=lambda b: _booking_sort_key(b, time_slots))
     for booking in bookings:
         booking['created_at_ist'] = utc_to_ist(booking.get('created_at'))
 
+    # Today's date for disabling Cancel/Postpone on past bookings
+    today_str = datetime.date.today().isoformat()
     # Render dashboard with current booking filters (admin)
     return render_template('admin_dashboard.html',
                          bookings=bookings,
@@ -146,7 +178,8 @@ def dashboard():
                          filter_from=from_date,
                          filter_to=to_date,
                          filter_slot=slot_filter,
-                         filter_status=status_filter)
+                         filter_status=status_filter,
+                         today_str=today_str)
 
 @admin_bp.route('/calendar')
 @login_required
@@ -328,7 +361,6 @@ def settings_page():
         if changes['slots_removed']:
             messages.append(f'➖ Removed time slots: {", ".join(changes["slots_removed"])} (historical data preserved)')
         
-        flash(' | '.join(messages), 'success')
         return render_template('settings.html', settings=data, message=' | '.join(messages))
     
     # GET request - load current settings
