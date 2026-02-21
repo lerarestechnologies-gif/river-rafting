@@ -353,15 +353,12 @@
   }
 
   async function fetchOccupancy(from, to) {
-    // Add cache-buster to avoid stale JSON responses from some browsers/proxies
     let url = '/admin/occupancy_detail';
     const params = new URLSearchParams();
     if (from) params.append('from', from);
     if (to) params.append('to', to);
-    // cache-buster
-    params.append('_', Date.now().toString());
-    url += '?' + params.toString();
-    const res = await fetch(url, { cache: 'no-store' });
+    if (params.toString()) url += '?' + params.toString();
+    const res = await fetch(url);
     if (!res.ok) {
       try {
         const err = await res.json();
@@ -487,17 +484,21 @@
         renderOccupancy(currentFrom, currentTo);
       }, 10000);
 
-      // Handle Apply button
+      // Handle Apply button (refresh page with filter like All Bookings)
       const applyBtn = document.getElementById('occupancyApply');
       if (applyBtn) {
         applyBtn.addEventListener('click', () => {
-          const f = fromInp.value;
-          const t = toInp.value;
-          if (f && t && new Date(f) > new Date(t)) {
+          const from = fromInp.value;
+          const to = toInp.value;
+          if (from && to && new Date(from) > new Date(to)) {
             alert('From Date cannot be greater than To Date');
             return;
           }
-          renderOccupancy(f || today, t || today);
+          const params = new URLSearchParams();
+          if (from) params.append('from', from);
+          if (to) params.append('to', to);
+          const url = '/admin/occupancy_overview' + (params.toString() ? '?' + params.toString() : '');
+          window.location.href = url;
         });
       }
 
