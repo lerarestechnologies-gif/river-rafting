@@ -326,6 +326,34 @@
 </div>
 
 <script>
+    function applyOccupancyFilter() {
+      const from = document.getElementById('occupancyFrom')?.value;
+      const to = document.getElementById('occupancyTo')?.value;
+      if (from && to) {
+        const f = new Date(from);
+        const t = new Date(to);
+        if (f > t) {
+          alert('From Date cannot be greater than To Date');
+          return;
+        }
+      }
+      // Show loading indicator
+      let loadingSpan = document.getElementById('occupancyLoading');
+      const applyBtn = document.getElementById('occupancyApply');
+      if (!loadingSpan && applyBtn) {
+        loadingSpan = document.createElement('span');
+        loadingSpan.id = 'occupancyLoading';
+        loadingSpan.className = 'text-blue-600 ml-2';
+        loadingSpan.innerHTML = 'Loading...';
+        applyBtn.parentNode.appendChild(loadingSpan);
+      } else if (loadingSpan) {
+        loadingSpan.style.display = 'inline';
+      }
+      renderOccupancy(from || new Date().toISOString().slice(0, 10), to || new Date().toISOString().slice(0, 10));
+      setTimeout(() => {
+        if (loadingSpan) loadingSpan.style.display = 'none';
+      }, 1200);
+    }
   const defaultCapacity = Number("{{ settings.get('capacity', 6) if settings else 6 }}");
   const raftsPerSlot = Number("{{ settings.get('rafts_per_slot', 5) if settings else 5 }}");
   const timeSlots = {{ (settings.get('time_slots', []) if settings else[]) | tojson }};
@@ -484,22 +512,10 @@
         renderOccupancy(currentFrom, currentTo);
       }, 10000);
 
-      // Handle Apply button (refresh page with filter like All Bookings)
+      // Handle Apply button
       const applyBtn = document.getElementById('occupancyApply');
       if (applyBtn) {
-        applyBtn.addEventListener('click', () => {
-          const from = fromInp.value;
-          const to = toInp.value;
-          if (from && to && new Date(from) > new Date(to)) {
-            alert('From Date cannot be greater than To Date');
-            return;
-          }
-          const params = new URLSearchParams();
-          if (from) params.append('from', from);
-          if (to) params.append('to', to);
-          const url = '/admin/occupancy_overview' + (params.toString() ? '?' + params.toString() : '');
-          window.location.href = url;
-        });
+        applyBtn.addEventListener('click', applyOccupancyFilter);
       }
 
       // Handle Clear button
