@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from bson.objectid import ObjectId
 
-def create_booking(db, name, email, phone, date, slot, group_size, status='Pending', raft_allocations=None, amount_per_person=0, total_amount=0):
+def create_booking(db, name, email, phone, date, slot, group_size, status='Pending', raft_allocations=None, raft_allocation_details=None, amount_per_person=0, total_amount=0):
     if raft_allocations is None:
         raft_allocations = []
+    if raft_allocation_details is None:
+        raft_allocation_details = []
     now_utc = datetime.now(timezone.utc)
 
     booking = {
@@ -14,6 +16,7 @@ def create_booking(db, name, email, phone, date, slot, group_size, status='Pendi
         'slot': slot,
         'group_size': int(group_size),
         'raft_allocations': raft_allocations,
+        'raft_allocation_details': raft_allocation_details,
         'status': status,
         'amount_per_person': float(amount_per_person),
         'total_amount': float(total_amount),

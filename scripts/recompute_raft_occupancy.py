@@ -37,19 +37,26 @@ for d, s in dates_slots:
 print("Applying confirmed bookings occupancy and verifying raft_allocations...")
 from utils.allocation_logic import allocate_raft
 for b in db.bookings.find({'status':'Confirmed'}):
-    rafts = b.get('raft_allocations', [])
-    if rafts:
-        group = int(b.get('group_size', 0))
-        per = group // len(rafts)
-        rem = group % len(rafts)
-        for idx, rid in enumerate(rafts):
-            add = per + (1 if idx < rem else 0)
+    details = b.get('raft_allocation_details')
+    if details:
+        for entry in details:
+            rid = int(entry.get('raft_id'))
+            add = int(entry.get('count', 0))
             db.rafts.update_one({'day': b['date'], 'slot': b['slot'], 'raft_id': rid}, {'$inc': {'occupancy': add}})
     else:
-        res = allocate_raft(db, None, b['date'], b['slot'], int(b.get('group_size', 0)))
-        if res.get('status') == 'Confirmed':
-            db.bookings.update_one({'_id': b['_id']}, {'$set': {'raft_allocations': res.get('rafts', [])}})
+        rafts = b.get('raft_allocations', [])
+        if rafts:
+            group = int(b.get('group_size', 0))
+            per = group // len(rafts)
+            rem = group % len(rafts)
+            for idx, rid in enumerate(rafts):
+                add = per + (1 if idx < rem else 0)
+                db.rafts.update_one({'day': b['date'], 'slot': b['slot'], 'raft_id': rid}, {'$inc': {'occupancy': add}})
         else:
-            print(f"Confirmed booking {b['_id']} could not be re-allocated automatically.")
+            res = allocate_raft(db, None, b['date'], b['slot'], int(b.get('group_size', 0)))
+            if res.get('status') == 'Confirmed':
+                db.bookings.update_one({'_id': b['_id']}, {'$set': {'raft_allocations': res.get('rafts', []), 'raft_allocation_details': res.get('raft_details', [])}})
+            else:
+                print(f"Confirmed booking {b['_id']} could not be re-allocated automatically.")
 
 print("Recompute complete.")

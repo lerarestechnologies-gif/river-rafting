@@ -817,8 +817,9 @@ def postpone_booking_route(booking_id):
     existing_booking = db.bookings.find_one({'_id': oid})
     if existing_booking and existing_booking.get('status') == 'Pending':
         return jsonify({'error': 'Pending bookings cannot be postponed. Please confirm the booking first.'}), 400
-    
+    print(f"[ADMIN-POSTPONE] Request: booking={booking_id}, new_date={new_date}, new_slot={new_slot}")
     res = postpone_booking(db, oid, new_date, new_slot)
+    print(f"[ADMIN-POSTPONE] Result: {res}")
     
     # Return error response with appropriate status code
     if 'error' in res:

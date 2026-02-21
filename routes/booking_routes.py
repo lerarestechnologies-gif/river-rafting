@@ -169,6 +169,7 @@ def book():
         if result.get('status') == 'Confirmed':
             booking_id = create_booking(db, name, email, phone, booking_date_str, slot, group_size, 
                                        status='Confirmed', raft_allocations=result.get('rafts', []),
+                                       raft_allocation_details=result.get('raft_details', []),
                                        amount_per_person=amount_per_person, total_amount=total_amount)
             flash(result.get('message', 'Booking Confirmed!'), 'success')
         else:

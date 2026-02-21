@@ -353,12 +353,15 @@
   }
 
   async function fetchOccupancy(from, to) {
+    // Add cache-buster to avoid stale JSON responses from some browsers/proxies
     let url = '/admin/occupancy_detail';
     const params = new URLSearchParams();
     if (from) params.append('from', from);
     if (to) params.append('to', to);
-    if (params.toString()) url += '?' + params.toString();
-    const res = await fetch(url);
+    // cache-buster
+    params.append('_', Date.now().toString());
+    url += '?' + params.toString();
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) {
       try {
         const err = await res.json();

@@ -117,14 +117,16 @@ def allocate_raft(db, user_id, date, slot, group_size):
         base = group_size // rafts_per_slot
         rem = group_size % rafts_per_slot
         placed = []
+        placement_details = []
         # Ensure deterministic ordering (already sorted above)
         for idx, r in enumerate(rafts):
             occ = base + (1 if idx < rem else 0)
             # Mark all rafts as special (7-capacity mode) and set occupancy
             db.rafts.update_one({'_id': r['_id']}, {'$set': {'occupancy': occ, 'is_special': True}})
             placed.append(r['raft_id'])
+            placement_details.append({'raft_id': r['raft_id'], 'count': occ})
 
-        return {'status': 'Confirmed', 'rafts': placed, 'message': f'Bulk allocated to rafts: {placed}'}
+        return {'status': 'Confirmed', 'rafts': placed, 'raft_details': placement_details, 'message': f'Bulk allocated to rafts: {placed}'}
 
 
     # Special case: if group_size is 7, check for empty rafts (can allocate 7 to empty raft as special)
@@ -142,7 +144,7 @@ def allocate_raft(db, user_id, date, slot, group_size):
     if group_size < 4:
         merged_raft = try_merge_into_existing_rafts(db, rafts, group_size, capacity)
         if merged_raft:
-            return {'status': 'Confirmed', 'rafts': [merged_raft], 'message': f'Merged into Raft {merged_raft}'}
+            return {'status': 'Confirmed', 'rafts': [merged_raft], 'raft_details': [{'raft_id': merged_raft, 'count': group_size}], 'message': f'Merged into Raft {merged_raft}'}
         return {'status': 'Pending', 'rafts': [], 'message': 'No suitable raft to merge small group.'}
 
     # compute allocation pattern as per C program
@@ -152,18 +154,20 @@ def allocate_raft(db, user_id, date, slot, group_size):
 
     # Try merging each allocation piece into existing rafts first
     placed = []
+    placement_details = []
     for i, part in enumerate(list(allocation)):
         if part <= 0:
             continue
         merged = try_merge_into_existing_rafts(db, rafts, part, capacity)
         if merged:
             placed.append(merged)
+            placement_details.append({'raft_id': merged, 'count': part})
             allocation[i] = 0  # mark placed
 
     # Collect unplaced parts
     unplaced = [p for p in allocation if p > 0]
     if not unplaced:
-        return {'status': 'Confirmed', 'rafts': placed, 'message': f'All merged ({placed})'}
+        return {'status': 'Confirmed', 'rafts': placed, 'raft_details': placement_details, 'message': f'All merged ({placed})'}
 
     # Find empty rafts
     empty_rafts = [r for r in rafts if r.get('occupancy', 0) == 0]
@@ -175,5 +179,6 @@ def allocate_raft(db, user_id, date, slot, group_size):
         target = empty_rafts[idx]
         db.rafts.update_one({'_id': target['_id']}, {'$set': {'occupancy': part, 'is_special': (part == 7)}})
         placed.append(target['raft_id'])
+        placement_details.append({'raft_id': target['raft_id'], 'count': part})
 
-    return {'status': 'Confirmed', 'rafts': placed, 'message': f'Allocated to rafts: {placed}'}
+    return {'status': 'Confirmed', 'rafts': placed, 'raft_details': placement_details, 'message': f'Allocated to rafts: {placed}'}
