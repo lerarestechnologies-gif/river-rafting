@@ -684,6 +684,30 @@
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.remove();
     });
+
+    // Instant update: Add event listeners for immediate disabling/enabling
+    dateInput.addEventListener('input', function () {
+      // Example: Disable slot if date is invalid or empty
+      const slotSelect = modal.querySelector('#postponeSlot');
+      if (!dateInput.value) {
+        slotSelect.disabled = true;
+      } else {
+        slotSelect.disabled = false;
+      }
+    });
+    // Slot select: instant feedback
+    const slotSelect = modal.querySelector('#postponeSlot');
+    slotSelect.addEventListener('change', function () {
+      // Example: Disable date if slot is empty
+      if (!slotSelect.value) {
+        dateInput.disabled = true;
+      } else {
+        dateInput.disabled = false;
+      }
+    });
+    // Initial state
+    if (!dateInput.value) slotSelect.disabled = true;
+    if (!slotSelect.value) dateInput.disabled = false;
   }
 
   async function submitPostpone(id) {
