@@ -88,9 +88,6 @@
 </style>
 
 <script>
-  window.fpInstance = window.fpInstance || null;
-  window.fpDisabledDates = window.fpDisabledDates || [];
-
   document.addEventListener('DOMContentLoaded', function () {
     const dateInput = document.getElementById('booking_date');
     // const noticeEl = document.getElementById('unavailableDatesNotice');
@@ -101,9 +98,12 @@
 
     // Initialize flatpickr immediately, then fetch unavailable dates asynchronously
     function initDatepicker() {
+      let fpInstance = null;
+      let disabledDates = [];
+
       // 1. Initialize flatpickr immediately with empty disabled list
       try {
-        window.fpInstance = flatpickr(dateInput, {
+        fpInstance = flatpickr(dateInput, {
           altInput: true,
           altFormat: 'd-m-Y',
           dateFormat: 'Y-m-d',
@@ -120,25 +120,17 @@
             if (currentDisabled.some(d => d === dateStr)) {
               alert('Selected date is fully booked. Please choose another date.');
               instance.clear();
-              if (typeof updateSlotAvailability === 'function') {
-                updateSlotAvailability(null);
-              }
+              updateSlotAvailability(null);
               return;
             }
-            if (typeof updateSlotAvailability === 'function') {
-              updateSlotAvailability(dateStr);
-            }
+            updateSlotAvailability(dateStr);
           }
         });
 
         // Wire calendar button
         const calBtn = document.getElementById('booking_date_btn');
         if (calBtn) {
-          calBtn.addEventListener('click', function () {
-            if (window.fpInstance) {
-              window.fpInstance.open();
-            }
-          });
+          calBtn.addEventListener('click', function () { fpInstance.open(); });
         }
       } catch (err) {
         console.error('Flatpickr init failed', err);
@@ -154,12 +146,12 @@
       fetch('/fully_booked_dates')
         .then(res => res.json())
         .then(data => {
-          if (data.fully_booked_dates && window.fpInstance) {
-            window.fpDisabledDates = data.fully_booked_dates;
+          if (data.fully_booked_dates && fpInstance) {
+            disabledDates = data.fully_booked_dates;
             // Update the calendar instance with new disabled dates
-            window.fpInstance.set('disable', window.fpDisabledDates);
+            fpInstance.set('disable', disabledDates);
             // Redraw to reflect changes immediately
-            window.fpInstance.redraw();
+            fpInstance.redraw();
           }
         })
         .catch(err => console.error('Failed to fetch fully filled dates', err));
@@ -179,11 +171,6 @@
     // Reset all options if no day provided
     if (!slotSelect) return;
     if (!day) {
-      const loadingOption = slotSelect.querySelector('option[data-loading]');
-      if (loadingOption) {
-        slotSelect.removeChild(loadingOption);
-      }
-      slotSelect.disabled = false;
       // enable all options
       Array.from(slotSelect.options).forEach(opt => {
         opt.disabled = false;
@@ -196,19 +183,6 @@
       slotAvailMap = {};
       return;
     }
-
-    // Show lightweight loading state while fetching availability
-    let loadingOption = slotSelect.querySelector('option[data-loading]');
-    if (!loadingOption) {
-      loadingOption = document.createElement('option');
-      loadingOption.value = '';
-      loadingOption.textContent = 'Updating availability...';
-      loadingOption.disabled = true;
-      loadingOption.setAttribute('data-loading', 'true');
-      slotSelect.insertBefore(loadingOption, slotSelect.firstChild);
-    }
-    slotSelect.disabled = true;
-    slotSelect.value = loadingOption.value;
 
     try {
       const res = await fetch('/slot_availability?day=' + encodeURIComponent(day));
@@ -256,70 +230,20 @@
           }
         }
       }
+
+      // When slot changes, update group size max accordingly
+      slotSelect.addEventListener('change', function () {
+        if (!slotAvailMap) return;
+        const info = slotAvailMap[this.value];
+        if (groupSizeInput) {
+          if (info) groupSizeInput.max = info.available || 0;
+          else groupSizeInput.removeAttribute('max');
+        }
+      });
+
     } catch (err) {
       console.error('Error updating slot availability', err);
-    } finally {
-      slotSelect.disabled = false;
-      loadingOption = slotSelect.querySelector('option[data-loading]');
-      if (loadingOption) {
-        slotSelect.removeChild(loadingOption);
-      }
     }
   }
-
-  // When slot changes, update group size max accordingly (bind once)
-  document.addEventListener('DOMContentLoaded', function () {
-    const slotSelect = document.getElementById('slot-select');
-    const groupSizeInput = document.querySelector('input[name="group_size"]');
-    if (!slotSelect || !groupSizeInput) return;
-
-    slotSelect.addEventListener('change', function () {
-      if (!slotAvailMap) return;
-      const info = slotAvailMap[this.value];
-      if (info) {
-        groupSizeInput.max = info.available || 0;
-      } else {
-        groupSizeInput.removeAttribute('max');
-      }
-    });
-  });
-
-  // Helper to refresh disabled dates and slot availability when returning
-  // to the page via back/forward navigation.
-  function refreshAvailability() {
-    const dateInput = document.getElementById('booking_date');
-    const selectedDate = dateInput ? dateInput.value : null;
-
-    // Refresh disabled dates for Flatpickr
-    if (window.fpInstance) {
-      fetch('/fully_booked_dates')
-        .then(res => res.json())
-        .then(data => {
-          if (data.fully_booked_dates && window.fpInstance) {
-            window.fpDisabledDates = data.fully_booked_dates;
-            window.fpInstance.set('disable', window.fpDisabledDates);
-            window.fpInstance.redraw();
-          }
-          // If a date is already selected, refresh slot availability for that day
-          if (selectedDate && typeof updateSlotAvailability === 'function') {
-            updateSlotAvailability(selectedDate);
-          }
-        })
-        .catch(err => console.error('Failed to refresh availability', err));
-    } else if (selectedDate && typeof updateSlotAvailability === 'function') {
-      // Even if fpInstance is not ready, ensure slots are current
-      updateSlotAvailability(selectedDate);
-    }
-  }
-
-  // Handle browser back/forward cache restores so the page always shows
-  // fresh availability without a full reload.
-  window.addEventListener('pageshow', function (event) {
-    if (event.persisted) {
-      if (typeof refreshAvailability === 'function') {
-        refreshAvailability();
-      }
-    }
-  });
 </script>
 {% endblock %}
