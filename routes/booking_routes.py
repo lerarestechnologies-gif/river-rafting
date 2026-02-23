@@ -121,11 +121,20 @@ def book():
         except:
             flash('Invalid group size', 'error')
             return redirect(url_for('booking.book'))
-        # Calculate max_people_per_slot dynamically: rafts_per_slot * (capacity + 1)
-        # The +1 accounts for special 7-person rafts when capacity is 6
-        max_people_per_slot = settings.get('rafts_per_slot', 5) * (settings.get('capacity', 6) + 1)
-        if group_size < 1 or group_size > max_people_per_slot:
-            flash(f'Invalid group size. Maximum allowed is {max_people_per_slot} people per slot.', 'error')
+
+        # Per-slot limits:
+        # - normal_max_people_per_slot: standard 6-person rafts
+        # - bulk_max_people_per_slot: 7-person special mode, only when slot is completely empty
+        rafts_per_slot = settings.get('rafts_per_slot', 5)
+        capacity = settings.get('capacity', 6)
+        normal_max_people_per_slot = rafts_per_slot * capacity
+        bulk_max_people_per_slot = rafts_per_slot * (capacity + 1)
+
+        # Basic sanity check: never allow beyond bulk maximum.
+        # Whether a particular request between normal and bulk max is allowed
+        # is decided by the allocation logic based on slot emptiness.
+        if group_size < 1 or group_size > bulk_max_people_per_slot:
+            flash(f'Invalid group size. Maximum allowed is {bulk_max_people_per_slot} people per slot (bulk booking limit).', 'error')
             return redirect(url_for('booking.book'))
         # Use the booking_date_str (YYYY-MM-DD) when interacting with raft helpers and DB
         # Server-side validation: reject if entire date is fully booked
@@ -253,15 +262,21 @@ def slot_availability():
             # ensure rafts exist for this date/slot
             _ensure(db, day, s, rafts_per_slot, capacity)
             rafts = list(db.rafts.find({'day': day, 'slot': s}).sort('raft_id', 1).limit(rafts_per_slot))
-            # compute available seats using same allocation rules
-            total_capacity = 0
-            total_occupancy = 0
-            for r in rafts:
-                r_capacity = r.get('capacity', capacity)
-                total_capacity += r_capacity
-                total_occupancy += max(0, r.get('occupancy', 0))
-            # Note: special raft handling in allocation may allow +1 seat for empty rafts; approximate available
-            available = max(total_capacity - total_occupancy, 0)
+
+            # Compute available seats:
+            # - For a completely empty slot, expose bulk capacity: rafts_per_slot * (capacity + 1)
+            #   so UI can allow a single bulk booking up to this size.
+            # - Otherwise, use normal capacity-based remaining seats calculation.
+            if rafts and all(r.get('occupancy', 0) == 0 for r in rafts):
+                available = rafts_per_slot * (capacity + 1)
+            else:
+                total_capacity = 0
+                total_occupancy = 0
+                for r in rafts:
+                    r_capacity = r.get('capacity', capacity)
+                    total_capacity += r_capacity
+                    total_occupancy += max(0, r.get('occupancy', 0))
+                available = max(total_capacity - total_occupancy, 0)
             
             # If slot passed, mark as full (0 available)
             if slot_passed:

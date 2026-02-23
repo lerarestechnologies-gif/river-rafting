@@ -36,10 +36,13 @@ def load_settings(db):
             end_date = today + timedelta(days=settings['days'] - 1)
             settings['end_date'] = end_date.isoformat()
     
-    # Calculate max_people_per_slot dynamically from rafts_per_slot * (capacity + 1)
-    # The +1 accounts for special 7-person rafts when capacity is 6
-    # Always calculate it fresh, ignoring any old value that might exist in the database
-    settings['max_people_per_slot'] = settings.get('rafts_per_slot', 5) * (settings.get('capacity', 6) + 1)
+    # Calculate per-slot limits from rafts_per_slot and capacity.
+    # - normal_max_people_per_slot: standard 6-person rafts, used for regular bookings
+    # - bulk_max_people_per_slot: 7-person special mode, only when slot is completely empty
+    rafts = settings.get('rafts_per_slot', 5)
+    capacity = settings.get('capacity', 6)
+    settings['normal_max_people_per_slot'] = rafts * capacity
+    settings['bulk_max_people_per_slot'] = rafts * (capacity + 1)
     return settings
 
 # ---------- Allocation Pattern ----------
@@ -182,3 +185,4 @@ def allocate_raft(db, user_id, date, slot, group_size):
         placement_details.append({'raft_id': target['raft_id'], 'count': part})
 
     return {'status': 'Confirmed', 'rafts': placed, 'raft_details': placement_details, 'message': f'Allocated to rafts: {placed}'}
+

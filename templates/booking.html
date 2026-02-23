@@ -51,8 +51,12 @@
       {% endfor %}
     </select>
     <input name="group_size" type="number" min="1"
-      max="{{ (settings.rafts_per_slot if settings and settings.rafts_per_slot else 5) * ((settings.capacity if settings and settings.capacity else 6) + 1) }}"
+      max="{{ settings.normal_max_people_per_slot if settings and settings.normal_max_people_per_slot else 30 }}"
       class="border p-2 w-full mb-2" placeholder="Group size" required>
+    <p class="text-xs text-gray-600 mb-2">
+      Maximum per slot: {{ settings.normal_max_people_per_slot }}.
+      Bulk booking (empty slot only): up to {{ settings.bulk_max_people_per_slot }}.
+    </p>
     <div class="text-center"><button class="bg-teal-600 text-white px-4 py-2 rounded">Confirm Booking</button></div>
   </form>
 </div>
