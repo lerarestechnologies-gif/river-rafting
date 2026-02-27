@@ -51,19 +51,23 @@ def calculate_total_amount(settings, booking_date_str, group_size):
         weekday = booking_date.weekday()
         
         # Determine day type and applicable amount
-        if weekday == 5:  # Saturday
-            applicable_amount = settings.get('saturday_amount', settings.get('weekday_amount', 0))
-            day_type = 'saturday'
-        else:  # Monday-Friday
+        if weekday >= 0 and weekday <= 4:  # Monday to Friday
             applicable_amount = settings.get('weekday_amount', 0)
+            advance_percent = settings.get('weekday_advance_percent', 25)
             day_type = 'weekday'
+        elif weekday == 5 or weekday == 6:  # Saturday or Sunday
+            applicable_amount = settings.get('saturday_amount', settings.get('weekday_amount', 0))
+            advance_percent = settings.get('saturday_advance_percent', 35)
+            day_type = 'weekend'
         
         # Calculate total
         total_amount = applicable_amount * group_size
-        
+        advance_amount = total_amount * (advance_percent / 100)
         return {
             'applicable_amount': applicable_amount,
             'total_amount': total_amount,
+            'advance_percent': advance_percent,
+            'advance_amount': advance_amount,
             'day_type': day_type
         }
     except (ValueError, TypeError):

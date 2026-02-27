@@ -311,7 +311,9 @@ def settings_page():
             # Parse amount settings (optional)
             weekday_amount_str = request.form.get('weekday_amount', '').strip()
             saturday_amount_str = request.form.get('saturday_amount', '').strip()
-            
+            weekday_advance_percent_str = request.form.get('weekday_advance_percent', '').strip()
+            saturday_advance_percent_str = request.form.get('saturday_advance_percent', '').strip()
+
             # Add amount settings to data if provided
             if weekday_amount_str:
                 try:
@@ -323,7 +325,7 @@ def settings_page():
                 except ValueError:
                     flash('Monday–Friday amount must be a valid number', 'error')
                     return render_template('settings.html', settings=old_settings)
-            
+
             if saturday_amount_str:
                 try:
                     saturday_amount = float(saturday_amount_str)
@@ -333,6 +335,29 @@ def settings_page():
                     data['saturday_amount'] = saturday_amount
                 except ValueError:
                     flash('Saturday amount must be a valid number', 'error')
+                    return render_template('settings.html', settings=old_settings)
+
+            # Add advance percentage settings to data if provided
+            if weekday_advance_percent_str:
+                try:
+                    weekday_advance_percent = float(weekday_advance_percent_str)
+                    if weekday_advance_percent < 0 or weekday_advance_percent > 100:
+                        flash('Weekday advance percent must be between 0 and 100', 'error')
+                        return render_template('settings.html', settings=old_settings)
+                    data['weekday_advance_percent'] = weekday_advance_percent
+                except ValueError:
+                    flash('Weekday advance percent must be a valid number', 'error')
+                    return render_template('settings.html', settings=old_settings)
+
+            if saturday_advance_percent_str:
+                try:
+                    saturday_advance_percent = float(saturday_advance_percent_str)
+                    if saturday_advance_percent < 0 or saturday_advance_percent > 100:
+                        flash('Weekend advance percent must be between 0 and 100', 'error')
+                        return render_template('settings.html', settings=old_settings)
+                    data['saturday_advance_percent'] = saturday_advance_percent
+                except ValueError:
+                    flash('Weekend advance percent must be a valid number', 'error')
                     return render_template('settings.html', settings=old_settings)
             
         except (ValueError, TypeError) as e:

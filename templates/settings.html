@@ -85,7 +85,7 @@
         <textarea name="time_slots" rows="2"
           class="w-full border border-gray-300 rounded-lg p-2 focus:ring focus:ring-blue-300"
           required>{{ ', '.join(settings.time_slots) }}</textarea>
-        <p class="text-sm text-gray-500 mt-1">Example: 7:00–9:00, 10:00–12:00</p>
+        <p class="text-sm text-gray-500 mt-1">Example: 7AM, 10 AM, 1PM, 3:30PM</p>
       </div>
 
       <!-- Amount Settings Section -->
@@ -95,34 +95,59 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Monday–Friday Amount (per person)</label>
-            <div class="flex items-center">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Weekday Amount(Per Person)</label>
+            <div class="flex items-center mb-2">
               <span class="text-gray-700 mr-2">₹</span>
               <input type="number" name="weekday_amount" id="weekday_amount"
                 value="{{ settings.weekday_amount if settings.weekday_amount else '' }}" placeholder="0.00" step="0.01"
                 min="0" class="flex-1 border border-gray-300 rounded-lg p-2 focus:ring focus:ring-blue-300">
             </div>
+            <div class="flex items-center mb-2">
+              <label class="text-xs text-gray-700 mr-2">Advance % (Mon-Fri):</label>
+              <input type="number" name="weekday_advance_percent" id="weekday_advance_percent"
+                value="{{ settings.weekday_advance_percent if settings.weekday_advance_percent else '25' }}" min="0" max="100" step="1"
+                class="w-20 border border-gray-300 rounded-lg p-2 focus:ring focus:ring-blue-300">
+              <span class="text-xs text-gray-500 ml-2">Default: 25%</span>
+            </div>
             <p class="text-xs text-gray-500 mt-1">Applied to Mon, Tue, Wed, Thu, Fri bookings</p>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Saturday Amount (per person)</label>
-            <div class="flex items-center">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Week end Amount(Per Person)</label>
+            <div class="flex items-center mb-2">
               <span class="text-gray-700 mr-2">₹</span>
               <input type="number" name="saturday_amount" id="saturday_amount"
                 value="{{ settings.saturday_amount if settings.saturday_amount else '' }}" placeholder="0.00"
                 step="0.01" min="0" class="flex-1 border border-gray-300 rounded-lg p-2 focus:ring focus:ring-blue-300">
             </div>
-            <p class="text-xs text-gray-500 mt-1">Applied to Saturday bookings (overrides weekday amount)</p>
+            <div class="flex items-center mb-2">
+              <label class="text-xs text-gray-700 mr-2">Advance % (Sat-Sun):</label>
+              <input type="number" name="saturday_advance_percent" id="saturday_advance_percent"
+                value="{{ settings.saturday_advance_percent if settings.saturday_advance_percent else '35' }}" min="0" max="100" step="1"
+                class="w-20 border border-gray-300 rounded-lg p-2 focus:ring focus:ring-blue-300">
+              <span class="text-xs text-gray-500 ml-2">Default: 35%</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Applied to Saturday and Sunday bookings</p>
           </div>
         </div>
 
         <div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p class="text-sm text-blue-900">
-            <strong>Info:</strong> Total amount for a booking = Group Size × Applicable Amount
+          <p class="text-sm text-blue-900 mb-2">
+            <strong>Info:</strong> <br>
+            <span>Total amount for a booking = Group Size × Applicable Amount</span><br>
+            <span>Advance payment = Group Size × Applicable Amount × Advance %</span>
           </p>
           <p class="text-xs text-blue-800 mt-2">
-            Example: Group of 4 on Friday with ₹25/person = ₹100 total
+            Example: Group of 4 on Friday with ₹25/person and 25% advance:<br>
+            Total = 4 × 25 = ₹100<br>
+            Advance = 4 × 25 × 25% = ₹25<br>
+            <br>
+            For Saturday and sunday with ₹40/person and 35% advance:<br>
+            Total = 4 × 40 = ₹160<br>
+            Advance = 4 × 40 × 35% = ₹56<br>
+            <br>
+            <strong>Weekday Amount</strong> applies to Monday to Friday bookings.<br>
+            <strong>Week end Amount</strong> applies to Saturday and Sunday bookings.
           </p>
         </div>
       </div>

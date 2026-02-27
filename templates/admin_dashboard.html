@@ -292,7 +292,7 @@
       Occupancy Overview
       {% endif %}
     </h2>
-    {% if not current_user.is_subadmin() %}
+    {% if current_user.is_subadmin() %}
     <button onclick="exportOccupancyOverviewToPDF()"
       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
       <span>📄</span>
@@ -992,10 +992,11 @@
         }
       }
 
-      // Add summary row
+      // Add summary row (fix column alignment)
       const totalOccupancyPercent = totalCapacity > 0 ? ((totalOccupancy / totalCapacity) * 100).toFixed(1) : 0;
       tableRows.push([
         'TOTAL',
+        '', // Time Slot column empty
         totalRafts.toString(),
         totalOccupancy.toString(),
         (totalCapacity - totalOccupancy).toString(),

@@ -200,6 +200,12 @@ def booking_confirmation(booking_id):
     if not b:
         flash('Booking not found', 'error')
         return redirect(url_for('booking.home'))
+    # Calculate advance amount for display
+    settings = get_settings(db)
+    from utils.amount_calculator import calculate_total_amount
+    amount_calc = calculate_total_amount(settings, b['date'], b['group_size'])
+    b['advance_amount'] = amount_calc.get('advance_amount', 0)
+    b['advance_percent'] = amount_calc.get('advance_percent', 0)
     return render_template('booking_confirmation.html', booking=b)
 
 @booking_bp.route('/availability')
