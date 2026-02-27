@@ -286,19 +286,13 @@
 <div id="occupancy" class="bg-white shadow rounded-lg p-4 mt-6">
   <div class="flex items-center justify-between mb-3">
     <h2 class="text-lg font-semibold">
-      {% if current_user.is_subadmin() %}
       Occupancy Overview
-      {% else %}
-      Occupancy Overview
-      {% endif %}
     </h2>
-    {% if current_user.is_subadmin() %}
     <button onclick="exportOccupancyOverviewToPDF()"
       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
       <span>📄</span>
       <span>Export to PDF</span>
     </button>
-    {% endif %}
   </div>
   <!-- Occupancy Overview: From / To date range (Admin and Sub-Admin) -->
   <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;" class="mb-3">
