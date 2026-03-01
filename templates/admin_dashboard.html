@@ -121,6 +121,8 @@
             <th class="px-4 py-2 border">Slot</th>
             <th class="px-4 py-2 border">Group Size</th>
             <th class="px-4 py-2 border">Rafts</th>
+            <th class="px-4 py-2 border">Payment Status</th>
+            <th class="px-4 py-2 border">Balance Amount</th>
             <th class="px-4 py-2 border">Status</th>
           </tr>
         </thead>
@@ -141,12 +143,18 @@
               {% endif %}
             </td>
             <td class="border px-4 py-2">
+              {{ b.payment_status_display or 'Not paid' }}
+            </td>
+            <td class="border px-4 py-2">
+              ₹{{ "%.2f"|format(b.balance_amount|default(0)) }}
+            </td>
+            <td class="border px-4 py-2">
               <span class="text-green-600 font-semibold">{{ b.status }}</span>
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="8" class="text-center py-4 text-gray-500">No confirmed bookings for today.</td>
+            <td colspan="10" class="text-center py-4 text-gray-500">No confirmed bookings for today.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -164,6 +172,8 @@
             <th class="px-4 py-2 border">Slot</th>
             <th class="px-4 py-2 border">Group Size</th>
             <th class="px-4 py-2 border">Rafts</th>
+            <th class="px-4 py-2 border">Payment Status</th>
+            <th class="px-4 py-2 border">Balance Amount</th>
             <th class="px-4 py-2 border">Status</th>
           </tr>
         </thead>
@@ -184,12 +194,18 @@
               {% endif %}
             </td>
             <td class="border px-4 py-2">
+              {{ b.payment_status_display or 'Not paid' }}
+            </td>
+            <td class="border px-4 py-2">
+              ₹{{ "%.2f"|format(b.balance_amount|default(0)) }}
+            </td>
+            <td class="border px-4 py-2">
               <span class="text-green-600 font-semibold">{{ b.status }}</span>
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="8" class="text-center py-4 text-gray-500">No confirmed bookings for tomorrow.</td>
+            <td colspan="10" class="text-center py-4 text-gray-500">No confirmed bookings for tomorrow.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -217,6 +233,8 @@
             <th class="px-4 py-2 border">Slot</th>
             <th class="px-4 py-2 border">Group Size</th>
             <th class="px-4 py-2 border">Rafts</th>
+            <th class="px-4 py-2 border">Payment Status</th>
+            <th class="px-4 py-2 border">Balance Amount</th>
             <th class="px-4 py-2 border">Status</th>
             <th class="px-4 py-2 border">Actions</th>
           </tr>
@@ -237,6 +255,12 @@
               {% else %}
               -
               {% endif %}
+            </td>
+            <td class="border px-4 py-2">
+              {{ b.payment_status_display or 'Not paid' }}
+            </td>
+            <td class="border px-4 py-2">
+              ₹{{ "%.2f"|format(b.balance_amount|default(0)) }}
             </td>
             <td class="border px-4 py-2">
               {% if b.status == 'Cancelled' %}
@@ -862,33 +886,46 @@
       doc.text(`Filtered by ${filterInfo.join(' | ')}`, 14, 27);
     }
 
-    // Table columns (removed 'Rafts' column for PDF export)
-    const tableColumn = ['Name', 'Phone', 'Email', 'Date', 'Slot', 'Group Size', 'Status'];
+      // Table columns for export (include payment status and balance)
+      const tableColumn = [
+        'Name',
+        'Phone',
+        'Email',
+        'Date',
+        'Slot',
+        'Group Size',
+        'Payment Status',
+        'Balance Amount',
+        'Status'
+      ];
 
     // Get booking data from table
     const tableBody = document.querySelector('table tbody');
     const tableRows = [];
 
-    if (tableBody) {
-      const rows = tableBody.querySelectorAll('tr');
-      rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        // Table columns in the page are: Name, Phone, Email, Date, Booked On, Slot, Group Size, Rafts, Status, (Actions)
-        // We want to export: Name, Phone, Email, Date, Slot, Group Size, Rafts, Status
-        if (cells.length >= 9) {
-          const rowData = [
-            cells[0].textContent.trim() || 'Unknown', // Name
-            cells[1].textContent.trim() || '-',       // Phone
-            cells[2].textContent.trim() || '-',       // Email
-            cells[3].textContent.trim() || '-',       // Date
-            cells[5].textContent.trim() || '-',       // Slot (cell 5)
-            cells[6].textContent.trim() || '-',       // Group Size (cell 6)
-            cells[8].textContent.trim() || '-'        // Status (cell 8)
-          ];
-          tableRows.push(rowData);
-        }
-      });
-    }
+      if (tableBody) {
+        const rows = tableBody.querySelectorAll('tr');
+        rows.forEach(row => {
+          const cells = row.querySelectorAll('td');
+          // Table columns in the page are:
+          // Name, Phone, Email, Date, Booked On, Slot, Group Size, Rafts,
+          // Payment Status, Balance Amount, Status, Actions
+          if (cells.length >= 11) {
+            const rowData = [
+              cells[0].textContent.trim() || 'Unknown', // Name
+              cells[1].textContent.trim() || '-',       // Phone
+              cells[2].textContent.trim() || '-',       // Email
+              cells[3].textContent.trim() || '-',       // Date
+              cells[5].textContent.trim() || '-',       // Slot
+              cells[6].textContent.trim() || '-',       // Group Size
+              cells[8].textContent.trim() || 'Not paid',// Payment Status
+              cells[9].textContent.trim() || '0',       // Balance Amount
+              cells[10].textContent.trim() || '-'       // Status
+            ];
+            tableRows.push(rowData);
+          }
+        });
+      }
 
     if (tableRows.length === 0) {
       doc.text('No bookings found', 14, 35);

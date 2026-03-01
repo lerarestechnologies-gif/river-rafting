@@ -90,17 +90,38 @@ def dashboard():
             today_filter['slot'] = slot_filter
             tomorrow_filter['slot'] = slot_filter
 
+        from utils.amount_calculator import calculate_total_amount
+
         # Fetch Today's Bookings and sort by date then slot order
         bookings_today = list(db.bookings.find(today_filter).sort(sort_order))
         bookings_today.sort(key=lambda b: _booking_sort_key(b, time_slots))
         for b in bookings_today:
             b['created_at_ist'] = utc_to_ist(b.get('created_at'))
+            # Compute pricing / payment summary per booking
+            amt = calculate_total_amount(settings, b.get('date'), int(b.get('group_size', 0) or 0))
+            total = amt.get('total_amount', b.get('amount', 0) or 0)
+            advance = amt.get('advance_amount', 0)
+            b['total_amount'] = total
+            b['advance_amount'] = advance
+            b['advance_percent'] = amt.get('advance_percent', 0)
+            paid = str(b.get('payment_status', '')).lower() == 'paid'
+            b['payment_status_display'] = 'Paid' if paid else 'Not paid'
+            b['balance_amount'] = max(total - advance, 0) if paid else total
 
         # Fetch Tomorrow's Bookings and sort by date then slot order
         bookings_tomorrow = list(db.bookings.find(tomorrow_filter).sort(sort_order))
         bookings_tomorrow.sort(key=lambda b: _booking_sort_key(b, time_slots))
         for b in bookings_tomorrow:
             b['created_at_ist'] = utc_to_ist(b.get('created_at'))
+            amt = calculate_total_amount(settings, b.get('date'), int(b.get('group_size', 0) or 0))
+            total = amt.get('total_amount', b.get('amount', 0) or 0)
+            advance = amt.get('advance_amount', 0)
+            b['total_amount'] = total
+            b['advance_amount'] = advance
+            b['advance_percent'] = amt.get('advance_percent', 0)
+            paid = str(b.get('payment_status', '')).lower() == 'paid'
+            b['payment_status_display'] = 'Paid' if paid else 'Not paid'
+            b['balance_amount'] = max(total - advance, 0) if paid else total
 
         today_str = datetime.date.today().isoformat()
         return render_template('admin_dashboard.html',
@@ -164,12 +185,24 @@ def dashboard():
         # Remove status filter to show all bookings for date/slot
         query_filter.pop('status', None)
 
+    from utils.amount_calculator import calculate_total_amount
+
     # Fetch bookings with filters (admin)
     bookings = list(db.bookings.find(query_filter).sort(sort_order).limit(500))
     # Sort by filtered date then by configured time-slot order (chronological)
     bookings.sort(key=lambda b: _booking_sort_key(b, time_slots))
     for booking in bookings:
         booking['created_at_ist'] = utc_to_ist(booking.get('created_at'))
+        # Compute pricing and balance per booking for admin table / export
+        amt = calculate_total_amount(settings, booking.get('date'), int(booking.get('group_size', 0) or 0))
+        total = amt.get('total_amount', booking.get('amount', 0) or 0)
+        advance = amt.get('advance_amount', 0)
+        booking['total_amount'] = total
+        booking['advance_amount'] = advance
+        booking['advance_percent'] = amt.get('advance_percent', 0)
+        paid = str(booking.get('payment_status', '')).lower() == 'paid'
+        booking['payment_status_display'] = 'Paid' if paid else 'Not paid'
+        booking['balance_amount'] = max(total - advance, 0) if paid else total
 
     # Today's date for disabling Cancel/Postpone on past bookings
     today_str = datetime.date.today().isoformat()
