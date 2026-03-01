@@ -61,6 +61,51 @@
   </form>
 </div>
 
+<!-- Booking Summary Card -->
+{% if booking_details is defined %}
+<div class="card mb-3">
+  <div class="card-header">Booking Summary</div>
+  <div class="card-body">
+    <p>Date: {{ booking_details.date }}</p>
+    <p>Slot: {{ booking_details.slot }}</p>
+    <p>People: {{ booking_details.people }}</p>
+    <h5>Total Amount: ₹{{ amount }}</h5>
+    <button id="proceedToPayment" class="btn btn-primary">Proceed to Payment</button>
+    <div id="loading" style="display:none;">Processing...</div>
+    <div id="error" class="text-danger"></div>
+  </div>
+</div>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script src="{{ url_for('static', filename='js/razorpay_checkout.js') }}"></script>
+<script>
+document.getElementById('proceedToPayment').onclick = function() {
+  document.getElementById('loading').style.display = 'block';
+  fetch('/payment/create_order', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      booking_details: {
+        date: "{{ booking_details.date }}",
+        slot: "{{ booking_details.slot }}",
+        people: "{{ booking_details.people }}"
+      },
+      amount: "{{ amount }}",
+      currency: "INR"
+    })
+  })
+  .then(res => res.json())
+  .then(orderData => {
+    document.getElementById('loading').style.display = 'none';
+    openRazorpayCheckout(orderData);
+  })
+  .catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').innerText = 'Error creating order. Please try again.';
+  });
+};
+</script>
+{% endif %}
+
 <script>
   // Listen for settings updates from other tabs/windows
   window.addEventListener('storage', function (e) {

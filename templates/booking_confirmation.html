@@ -2,33 +2,69 @@
 {% block content %}
 <div class="max-w-2xl mx-auto bg-white p-6 rounded shadow">
   <h2 class="text-xl font-bold mb-4">Booking Confirmation</h2>
-  
   <div class="space-y-3 mb-6">
-    <p><strong>Name:</strong> {{ booking.user_name }}</p>
-    <p><strong>Date:</strong> {{ booking.date }} - {{ booking.slot }}</p>
-    <p><strong>Group Size:</strong> {{ booking.group_size }} person(s)</p>
-    <p><strong>Status:</strong> {{ booking.status }}</p>
-    {% if booking.raft_allocations %}
-    <p><strong>Rafts:</strong> {{ booking.raft_allocations }}</p>
+    <p><strong>Name:</strong> {{ booking.get('user_name', booking.get('name', '')) }}</p>
+    <p><strong>Date:</strong> {{ booking.get('date', booking.get('booking_details', {}).get('date', '')) }} - {{ booking.get('slot', booking.get('booking_details', {}).get('slot', '')) }}</p>
+    <p><strong>Group Size:</strong> {{ booking.get('group_size', booking.get('booking_details', {}).get('group_size', '')) }} person(s)</p>
+    <p><strong>Status:</strong> {{ booking.get('status', '') }}</p>
+    {% if booking.get('raft_allocations', booking.get('booking_details', {}).get('raft_allocations')) %}
+    <p><strong>Rafts:</strong> {{ booking.get('raft_allocations', booking.get('booking_details', {}).get('raft_allocations')) }}</p>
     {% endif %}
   </div>
-  
-  {% if booking.total_amount > 0 %}
+  {% set total = booking.get('total_amount', booking.get('amount', 0)) %}
+  {% set per_person = booking.get('amount_per_person', booking.get('booking_details', {}).get('amount_per_person', 0)) %}
+  {% set bookingPayload = {
+    'booking_details': {
+      'date': booking.get('date', booking.get('booking_details', {}).get('date', '')),
+      'slot': booking.get('slot', booking.get('booking_details', {}).get('slot', '')),
+      'group_size': booking.get('group_size', booking.get('booking_details', {}).get('group_size', 0))
+    },
+    'amount': total,
+    'currency': 'INR',
+    'booking_id': booking.get('_id', '')
+  } %}
+  {% if total > 0 %}
   <div class="border-t pt-4 mt-4">
     <div class="bg-blue-50 p-4 rounded border border-blue-200">
       <p class="text-sm text-gray-600">Amount per person:</p>
-      <p class="text-lg font-semibold text-blue-600 mb-2">₹{{ "%.2f"|format(booking.amount_per_person) }}</p>
+      <p class="text-lg font-semibold text-blue-600 mb-2">₹{{ "%.2f"|format(per_person) }}</p>
       <p class="text-sm text-gray-600 mt-3">Total Amount:</p>
-      <p class="text-2xl font-bold text-green-600">₹{{ "%.2f"|format(booking.total_amount) }}</p>
-      <p class="text-xs text-gray-500 mt-1">{{ booking.group_size }} × ₹{{ "%.2f"|format(booking.amount_per_person) }}</p>
+      <p class="text-2xl font-bold text-green-600">₹{{ "%.2f"|format(total) }}</p>
+      <p class="text-xs text-gray-500 mt-1">{{ booking.get('group_size', booking.get('booking_details', {}).get('group_size', '')) }} × ₹{{ "%.2f"|format(per_person) }}</p>
       <hr class="my-3">
-      <p class="text-sm text-gray-600 mt-3">Advance Payment ({{ booking.advance_percent }}%):</p>
-      <p class="text-xl font-bold text-orange-600">₹{{ "%.2f"|format(booking.advance_amount) }}</p>
-      <p class="text-xs text-gray-500 mt-1">{{ booking.group_size }} × ₹{{ "%.2f"|format(booking.amount_per_person) }} × {{ booking.advance_percent }}%</p>
+      <p class="text-sm text-gray-600 mt-3">Advance Payment ({{ booking.get('advance_percent', 0) }}%):</p>
+      <p class="text-xl font-bold text-orange-600">₹{{ "%.2f"|format(booking.get('advance_amount', 0)) }}</p>
+      <p class="text-xs text-gray-500 mt-1">{{ booking.get('group_size', booking.get('booking_details', {}).get('group_size', '')) }} × ₹{{ "%.2f"|format(per_person) }} × {{ booking.get('advance_percent', 0) }}%</p>
+      <div class="text-center mt-4">
+        <button id="proceedToPayment" class="btn btn-primary">Proceed to Payment</button>
+        <div id="loading" style="display:none;">Processing...</div>
+        <div id="error" class="text-danger"></div>
+      </div>
     </div>
   </div>
   {% endif %}
-  
   <div class="mt-6"><a href="{{ url_for('booking.home') }}" class="text-sm text-teal-600">Back to Home</a></div>
 </div>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script src="{{ url_for('static', filename='js/razorpay_checkout.js') }}"></script>
+<script>
+const bookingPayload = {{ bookingPayload | tojson }};
+document.getElementById('proceedToPayment').onclick = function() {
+  document.getElementById('loading').style.display = 'block';
+  fetch('/payment/create_order', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(bookingPayload)
+  })
+  .then(res => res.json())
+  .then(orderData => {
+    document.getElementById('loading').style.display = 'none';
+    openRazorpayCheckout(orderData);
+  })
+  .catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').innerText = 'Error creating order. Please try again.';
+  });
+};
+</script>
 {% endblock %}

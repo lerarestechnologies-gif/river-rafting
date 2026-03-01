@@ -1,11 +1,12 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from datetime import date, datetime, timedelta
-from models.booking_model import create_booking, find_latest_by_contact
-from utils.allocation_logic import allocate_raft, load_settings
+from models.booking_model import create_booking
+from utils.allocation_logic import load_settings
 from utils.amount_calculator import calculate_total_amount
 from models.raft_model import ensure_rafts_for_date_slot
 from bson.objectid import ObjectId
 from datetime import timedelta as _timedelta
+from utils.booking_ops import check_capacity_available
 
 booking_bp = Blueprint('booking', __name__)
 
@@ -167,25 +168,44 @@ def book():
             flash('Selected date is fully booked', 'error')
             return redirect(url_for('booking.book'))
 
-        ensure_rafts_for_date_slot(db, booking_date_str, slot, settings['rafts_per_slot'], settings['capacity'])
-        result = allocate_raft(db, None, booking_date_str, slot, group_size)
+        # Capacity check (read‑only): ensure there is room for this group
+        # without actually reserving seats or assigning rafts yet.
+        # This keeps the flow:
+        #   Pending booking -> no raft, no seat reserved.
+        has_capacity = check_capacity_available(db, booking_date_str, slot, group_size)
+        if not has_capacity:
+            flash('Not enough capacity in this slot.', 'error')
+            return redirect(url_for('booking.book'))
         
         # Calculate amount for this booking
         amount_calc = calculate_total_amount(settings, booking_date_str, group_size)
         amount_per_person = amount_calc['applicable_amount']
         total_amount = amount_calc['total_amount']
-        
-        if result.get('status') == 'Confirmed':
-            booking_id = create_booking(db, name, email, phone, booking_date_str, slot, group_size, 
-                                       status='Confirmed', raft_allocations=result.get('rafts', []),
-                                       raft_allocation_details=result.get('raft_details', []),
-                                       amount_per_person=amount_per_person, total_amount=total_amount)
-            flash(result.get('message', 'Booking Confirmed!'), 'success')
-        else:
-            booking_id = create_booking(db, name, email, phone, booking_date_str, slot, group_size, 
-                                       status='Pending', raft_allocations=[],
-                                       amount_per_person=amount_per_person, total_amount=total_amount)
-            flash(result.get('message', 'Booking Pending – admin will contact you.'), 'warning')
+
+        # IMPORTANT LIFECYCLE RULE:
+        # - A newly created booking is always Pending.
+        # - NO raft is assigned and NO seat is reserved at this stage.
+        # - Rafts and occupancy are updated only after successful payment.
+        booking_details = {
+            'name': name,
+            'email': email,
+            'phone': phone,
+            'date': booking_date_str,
+            'slot': slot,
+            'group_size': group_size,
+            'amount_per_person': amount_per_person,
+            'total_amount': total_amount
+        }
+        booking_id = create_booking(
+            db,
+            user_id=email,  # or current_user.get_id() if using Flask-Login
+            booking_details=booking_details,
+            amount=total_amount,
+            currency='INR',
+            status='Pending',
+            payment_status='Pending',
+        )
+        flash('Booking created. Please complete payment to confirm your slot.', 'info')
         return redirect(url_for('booking.booking_confirmation', booking_id=booking_id))
     # For GET requests, provide the min_date and max_date so the frontend datepicker can enforce range
     return render_template('booking.html', settings=settings, min_date=min_date.isoformat(), max_date=max_date.isoformat(), start_date=start_date.isoformat(), end_date=end_date.isoformat())
@@ -203,9 +223,11 @@ def booking_confirmation(booking_id):
     # Calculate advance amount for display
     settings = get_settings(db)
     from utils.amount_calculator import calculate_total_amount
-    amount_calc = calculate_total_amount(settings, b['date'], b['group_size'])
+    booking_details = b.get('booking_details', {})
+    amount_calc = calculate_total_amount(settings, booking_details.get('date'), booking_details.get('group_size'))
     b['advance_amount'] = amount_calc.get('advance_amount', 0)
     b['advance_percent'] = amount_calc.get('advance_percent', 0)
+    b['_id'] = str(b['_id'])
     return render_template('booking_confirmation.html', booking=b)
 
 @booking_bp.route('/availability')
@@ -369,15 +391,15 @@ def track_booking():
         
         db = current_app.mongo.db
         # Updated to query ALL matches, not just latest
-        cursor = find_latest_by_contact(db, email, phone) 
+        cursor = db.bookings.find({
+            '$or': [{'email': email}, {'phone': phone}]
+        }).sort('created_at', -1)
         # Note: find_latest_by_contact currently sorts and checks. 
         # Ideally, we should use a new function `find_all_by_contact` or reuse the cursor if it wasn't limited to 1.
         # Assuming `find_latest_by_contact` returns a mongo cursor (not find_one), we can iterate it. 
         # Let's inspect `models/booking_model.py` carefully or just write the find query here to be safe.
         
-        bookings = list(db.bookings.find({
-            '$or': [{'email': email}, {'phone': phone}]
-        }).sort('created_at', -1))
+        bookings = list(cursor)
         
         if not bookings:
             flash('No booking found for that contact.', 'error')

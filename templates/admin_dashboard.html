@@ -767,7 +767,7 @@
     }
   }
 
-  async function promptPostpone(event, id) {
+  function promptPostpone(event, id) {
     {% if current_user.is_subadmin() %}
     alert('Access denied. Sub-Admin cannot postpone bookings.');
     return;
@@ -794,8 +794,7 @@
     if (e.key === 'settings_updated') {
       // Reload page to get fresh settings (capacity, time slots, etc.)
       console.log('Settings updated - refreshing dashboard...');
-      window.location.reload();
-    }
+      window.location.reload();    }
     if (e.key === 'bookings_deleted') {
       // Refresh occupancy overview when bookings are deleted
       try {

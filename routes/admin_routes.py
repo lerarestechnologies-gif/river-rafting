@@ -68,7 +68,7 @@ def dashboard():
     settings = load_settings(db)
     time_slots = settings.get('time_slots') or []
     # Build query filter for bookings list (filters apply only to bookings)
-    query_filter = {}
+    query_filter = {"status": {"$in": ["Confirmed", "Pending", "paid"]}}
 
     # DB sort: date and created_at; slot order applied in Python using configured time_slots
     sort_order = [('date', 1), ('created_at', -1)]
@@ -158,8 +158,11 @@ def dashboard():
         query_filter['slot'] = slot_filter
 
     # Status filter
-    if status_filter:
+    if status_filter and status_filter.lower() != 'all':
         query_filter['status'] = status_filter
+    elif not status_filter or status_filter.lower() == 'all':
+        # Remove status filter to show all bookings for date/slot
+        query_filter.pop('status', None)
 
     # Fetch bookings with filters (admin)
     bookings = list(db.bookings.find(query_filter).sort(sort_order).limit(500))
@@ -760,32 +763,95 @@ def occupancy_detail():
 
         # Prepare bookings_by_slot_by_date (only for display of booking details related to rafts)
         bookings_by_slot = {}
-        for b in db.bookings.find({'date': {'$gte': from_date, '$lte': to_date}}):
+        # Only show bookings that are actually confirmed; pending / cancelled
+        # bookings should not be counted in the occupancy overview.
+        for b in db.bookings.find(
+            {
+                'date': {'$gte': from_date, '$lte': to_date},
+                'status': 'Confirmed'
+            }
+        ):
             s = b.get('slot')
             date_key = b.get('date')
             bookings_by_slot.setdefault(date_key, {}).setdefault(s, []).append(b)
 
         # Build result grouped by date -> slot -> raft_list
+        # IMPORTANT: Occupancy must be derived **only from confirmed bookings**,
+        # not from raw raft occupancy, so that "pending" / unpaid bookings do not
+        # appear as booked seats in the admin Occupancy Overview.
         result = {}
         for date_str in allowed_dates:
             result[date_str] = {}
             for slot in slots:
-                rafts = list(db.rafts.find({'day': date_str, 'slot': slot}).sort('raft_id', 1).limit(rafts_per_slot))
+                # Fetch configured rafts for this date/slot
+                rafts = list(
+                    db.rafts.find({'day': date_str, 'slot': slot})
+                    .sort('raft_id', 1)
+                    .limit(rafts_per_slot)
+                )
+
+                # All confirmed bookings for this date+slot (prepared above)
+                slot_bookings = bookings_by_slot.get(date_str, {}).get(slot, [])
+
+                # Compute confirmed occupancy per raft_id from bookings only.
+                # This ensures that "pending" bookings (which may still have
+                # provisional raft allocations) do NOT contribute to occupancy.
+                occupancy_by_raft = {}
+                for b in slot_bookings:
+                    group_size = int(b.get('group_size', 0) or 0)
+                    if group_size <= 0:
+                        continue
+
+                    details = b.get('raft_allocation_details') or []
+                    allocations = b.get('raft_allocations') or []
+
+                    if details:
+                        # Preferred path: we know exactly how many seats were placed in each raft
+                        for entry in details:
+                            try:
+                                rid = int(entry.get('raft_id'))
+                                count = int(entry.get('count', 0) or 0)
+                            except Exception:
+                                continue
+                            if count <= 0:
+                                continue
+                            occupancy_by_raft[rid] = occupancy_by_raft.get(rid, 0) + count
+                    elif allocations:
+                        # Fallback: distribute group_size evenly across allocated rafts
+                        try:
+                            raft_ids = [int(rid) for rid in allocations]
+                        except Exception:
+                            continue
+                        if not raft_ids:
+                            continue
+                        per = group_size // len(raft_ids)
+                        rem = group_size % len(raft_ids)
+                        for idx, rid in enumerate(raft_ids):
+                            add = per + (1 if idx < rem else 0)
+                            if add <= 0:
+                                continue
+                            occupancy_by_raft[rid] = occupancy_by_raft.get(rid, 0) + add
+
+                # Build raft list using computed confirmed occupancy
                 raft_list = []
                 for r in rafts:
-                    # Only show is_special if occupancy > 0
-                    occupancy = max(0, r.get('occupancy', 0))
-                    is_special = r.get('is_special', False) and occupancy > 0
+                    rid = r.get('raft_id')
+                    try:
+                        rid_int = int(rid)
+                    except Exception:
+                        rid_int = None
 
-                    # Fix inconsistent flags in DB (non-destructive)
-                    if occupancy == 0 and r.get('is_special', False):
-                        db.rafts.update_one({'_id': r['_id']}, {'$set': {'is_special': False}})
-                        is_special = False
+                    confirmed_occupancy = max(
+                        0,
+                        occupancy_by_raft.get(rid_int, 0) if rid_int is not None else 0,
+                    )
+
+                    # Mark special rafts only when they actually hold 7 confirmed seats
+                    is_special = confirmed_occupancy == 7
 
                     raft_bookings = []
-                    slot_bookings = bookings_by_slot.get(date_str, {}).get(slot, [])
                     for b in slot_bookings:
-                        if b.get('raft_allocations') and r.get('raft_id') in b.get('raft_allocations', []):
+                        if b.get('raft_allocations') and rid_int in b.get('raft_allocations', []):
                             raft_bookings.append({
                                 'id': str(b['_id']),
                                 'name': b.get('user_name') or b.get('name') or '',
@@ -795,8 +861,8 @@ def occupancy_detail():
                             })
 
                     raft_list.append({
-                        'raft_id': r.get('raft_id'),
-                        'occupancy': occupancy,
+                        'raft_id': rid,
+                        'occupancy': confirmed_occupancy,
                         'capacity': capacity,
                         'is_special': is_special,
                         'bookings': raft_bookings

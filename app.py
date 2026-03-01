@@ -30,6 +30,7 @@ def create_app():
     mongo_ns.client = client
     mongo_ns.db = db
     app.mongo = mongo_ns
+    app.config['MONGO_CLIENT'] = client
 
     # Login manager
     login_manager = LoginManager(app)
@@ -79,10 +80,12 @@ def create_app():
     from routes.auth_routes import auth_bp
     from routes.booking_routes import booking_bp
     from routes.admin_routes import admin_bp
+    from routes.payment import payment_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(booking_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(payment_bp)
 
     return app
 
